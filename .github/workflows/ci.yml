@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      - name: Restore
+        run: dotnet restore CommerceOps.slnx
+      - name: Build
+        run: dotnet build CommerceOps.slnx -c Release --no-restore
+      - name: Test
+        run: dotnet test CommerceOps.slnx -c Release --no-build
