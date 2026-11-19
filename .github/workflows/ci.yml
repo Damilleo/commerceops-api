@@ -19,5 +19,25 @@ jobs:
         run: dotnet restore CommerceOps.slnx
       - name: Build
         run: dotnet build CommerceOps.slnx -c Release --no-restore
-      - name: Test
+      - name: Test with SQLite
+        run: dotnet test CommerceOps.slnx -c Release --no-build
+      - name: Start SQL Server
+        shell: bash
+        run: |
+          export MSSQL_SA_PASSWORD="CommerceOpsAa1!$(openssl rand -hex 16)"
+          echo "::add-mask::$MSSQL_SA_PASSWORD"
+          docker run -d --name commerceops-sql -p 127.0.0.1:1433:1433 \
+            -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e MSSQL_SA_PASSWORD \
+            mcr.microsoft.com/mssql/server:2022-latest
+
+          for attempt in {1..60}; do
+            if docker exec commerceops-sql sh -c 'SQLCMDPASSWORD="$MSSQL_SA_PASSWORD" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -l 2 -Q "SELECT 1"' >/dev/null 2>&1; then
+              echo "COMMERCEOPS_TEST_SQLSERVER=Server=127.0.0.1,1433;User ID=sa;Password=$MSSQL_SA_PASSWORD;Encrypt=True;TrustServerCertificate=True" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs --tail 80 commerceops-sql
+          exit 1
+      - name: Test with SQL Server and apply migration to a fresh database
         run: dotnet test CommerceOps.slnx -c Release --no-build
