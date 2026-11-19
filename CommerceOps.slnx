@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/CommerceOps.Api/CommerceOps.Api.csproj" />
     <Project Path="src/CommerceOps.Application/CommerceOps.Application.csproj" />
+    <Project Path="src/CommerceOps.Infrastructure/CommerceOps.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CommerceOps.Api.Tests/CommerceOps.Api.Tests.csproj" />

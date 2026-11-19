@@ -7,6 +7,8 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.15" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.15" PrivateAssets="all" />
     <ProjectReference Include="../CommerceOps.Application/CommerceOps.Application.csproj" />
+    <ProjectReference Include="../CommerceOps.Infrastructure/CommerceOps.Infrastructure.csproj" />
   </ItemGroup>
 </Project>
