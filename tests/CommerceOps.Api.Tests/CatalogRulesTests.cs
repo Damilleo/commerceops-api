@@ -1,3 +1,4 @@
+using CommerceOps.Application.Common;
 using CommerceOps.Application.Catalog;
 using Xunit;
 
@@ -23,9 +24,9 @@ public sealed class CatalogRulesTests
     {
         var request = new ProductRequest(new string('A', 65), " ", new string('D', 1001), 0m, Guid.Empty);
 
-        var exception = Assert.Throws<CatalogException>(() => CatalogRules.Validate(request));
+        var exception = Assert.Throws<RequestException>(() => CatalogRules.Validate(request));
 
-        Assert.Equal(CatalogError.Validation, exception.Error);
+        Assert.Equal(RequestError.Validation, exception.Error);
         Assert.Equal(["sku", "name", "description", "unitPrice", "categoryId"], exception.Errors!.Keys);
     }
 
@@ -34,8 +35,8 @@ public sealed class CatalogRulesTests
     {
         var request = new ProductRequest("SKU", "Item", null, 1m, Guid.NewGuid());
 
-        Assert.Throws<CatalogException>(() => CatalogRules.Validate(request with { UnitPrice = 0.001m }));
-        Assert.Throws<CatalogException>(() => CatalogRules.Validate(request with { UnitPrice = 10_000_000_000_000_000m }));
+        Assert.Throws<RequestException>(() => CatalogRules.Validate(request with { UnitPrice = 0.001m }));
+        Assert.Throws<RequestException>(() => CatalogRules.Validate(request with { UnitPrice = 10_000_000_000_000_000m }));
         Assert.Equal(9_999_999_999_999_999.99m,
             CatalogRules.Validate(request with { UnitPrice = 9_999_999_999_999_999.99m }).UnitPrice);
     }
@@ -45,7 +46,7 @@ public sealed class CatalogRulesTests
     {
         var request = new CategoryRequest(" ", new string('D', 1001));
 
-        var exception = Assert.Throws<CatalogException>(() => CatalogRules.Validate(request));
+        var exception = Assert.Throws<RequestException>(() => CatalogRules.Validate(request));
 
         Assert.Equal(["name", "description"], exception.Errors!.Keys);
     }
@@ -57,7 +58,7 @@ public sealed class CatalogRulesTests
     [InlineData(int.MaxValue, 100, "page")]
     public void ValidatePage_RejectsInvalidPageOrSize(int page, int pageSize, string field)
     {
-        var exception = Assert.Throws<CatalogException>(() => CatalogRules.ValidatePage(page, pageSize));
+        var exception = Assert.Throws<RequestException>(() => Pagination.GetOffset(page, pageSize));
 
         Assert.Contains(field, exception.Errors!);
     }

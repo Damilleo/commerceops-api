@@ -9,6 +9,7 @@ public interface ICatalogStore
     Task<Product?> FindProductAsync(Guid id, CancellationToken cancellationToken);
     Task<bool> CategoryExistsAsync(Guid id, CancellationToken cancellationToken);
 
+    Task<bool> ProductHasMovementsAsync(Guid productId, CancellationToken cancellationToken);
     Task<bool> CategoryHasProductsAsync(Guid categoryId, CancellationToken cancellationToken);
     Task<bool> SkuExistsAsync(string sku, Guid? exceptProductId, CancellationToken cancellationToken);
 

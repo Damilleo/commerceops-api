@@ -15,6 +15,10 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
+      - name: Restore and verify EF CLI
+        run: |
+          dotnet tool restore
+          dotnet ef --version
       - name: Restore
         run: dotnet restore CommerceOps.slnx
       - name: Build

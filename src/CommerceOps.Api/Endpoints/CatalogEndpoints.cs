@@ -1,3 +1,4 @@
+using CommerceOps.Application.Common;
 using CommerceOps.Application.Catalog;
 
 namespace CommerceOps.Api.Endpoints;
@@ -45,7 +46,7 @@ internal static class CatalogEndpoints
         var products = api.MapGroup("/products").WithTags("Products");
 
         products.MapGet("", async (CatalogService catalog, CancellationToken cancellationToken,
-                Guid? categoryId, int page = 1, int pageSize = CatalogRules.DefaultPageSize) =>
+                Guid? categoryId, int page = 1, int pageSize = Pagination.DefaultPageSize) =>
                 TypedResults.Ok(await catalog.ListProductsAsync(categoryId, page, pageSize, cancellationToken)))
             .WithSummary("List products by SKU with optional category filtering and pagination")
             .ProducesValidationProblem();
@@ -75,6 +76,6 @@ internal static class CatalogEndpoints
                 await catalog.DeleteProductAsync(id, cancellationToken);
                 return TypedResults.NoContent();
             })
-            .WithSummary("Delete a product").ProducesProblem(400).ProducesProblem(404);
+            .WithSummary("Delete a product with no stock movements").ProducesProblem(400).ProducesProblem(404).ProducesProblem(409);
     }
 }

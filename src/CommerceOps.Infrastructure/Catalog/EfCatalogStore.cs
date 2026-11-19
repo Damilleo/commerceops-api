@@ -1,4 +1,6 @@
+using CommerceOps.Application.Common;
 using CommerceOps.Application.Catalog;
+using CommerceOps.Infrastructure.Inventory;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
@@ -27,6 +29,9 @@ public sealed class EfCatalogStore(CatalogDbContext db) : ICatalogStore
     public Task<bool> CategoryExistsAsync(Guid id, CancellationToken cancellationToken) =>
         db.Categories.AnyAsync(category => category.Id == id, cancellationToken);
 
+    public Task<bool> ProductHasMovementsAsync(Guid productId, CancellationToken cancellationToken) =>
+        db.StockMovements.AnyAsync(movement => movement.ProductId == productId, cancellationToken);
+
     public Task<bool> CategoryHasProductsAsync(Guid categoryId, CancellationToken cancellationToken) =>
         db.Products.AnyAsync(product => product.CategoryId == categoryId, cancellationToken);
 
@@ -46,20 +51,25 @@ public sealed class EfCatalogStore(CatalogDbContext db) : ICatalogStore
         }
         catch (DbUpdateConcurrencyException exception)
         {
-            throw CatalogException.NotFound(exception.Entries.Any(entry => entry.Entity is Category) ? "category" : "product");
+            throw RequestException.NotFound(exception.Entries.Any(entry => entry.Entity is Category) ? "category" : "product");
         }
         catch (DbUpdateException exception) when (exception.InnerException is SqlException sql)
         {
             if (sql.Number is 2601 or 2627 && sql.Message.Contains(ProductConfiguration.SkuIndex, StringComparison.Ordinal))
             {
-                throw CatalogException.DuplicateSku();
+                throw CatalogErrors.DuplicateSku();
             }
 
             if (sql.Number == 547 && sql.Message.Contains(ProductConfiguration.CategoryForeignKey, StringComparison.Ordinal))
             {
                 throw exception.Entries.Any(entry => entry.Entity is Category && entry.State == EntityState.Deleted)
-                    ? CatalogException.CategoryInUse()
-                    : CatalogException.UnknownCategory();
+                    ? CatalogErrors.CategoryInUse()
+                    : CatalogErrors.UnknownCategory();
+            }
+
+            if (sql.Number == 547 && sql.Message.Contains(StockMovementConfiguration.ProductForeignKey, StringComparison.Ordinal))
+            {
+                throw CatalogErrors.ProductHasMovements();
             }
 
             throw;
