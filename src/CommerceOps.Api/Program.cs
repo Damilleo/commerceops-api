@@ -2,15 +2,17 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CommerceOps.Api.Auth;
+using CommerceOps.Api.Commands;
 using CommerceOps.Api.Endpoints;
 using CommerceOps.Application.Catalog;
 using CommerceOps.Application.Inventory;
 using CommerceOps.Infrastructure.Catalog;
+using CommerceOps.Infrastructure.Demo;
 using CommerceOps.Infrastructure.Inventory;
 using Microsoft.EntityFrameworkCore;
 
-var bootstrap = args is ["bootstrap-admin"];
-var builder = WebApplication.CreateBuilder(bootstrap ? [] : args);
+var command = args is ["bootstrap-admin"] or ["seed-demo"] ? args[0] : null;
+var builder = WebApplication.CreateBuilder(command is null ? args : []);
 builder.Services.AddCommerceOpsAuth(builder.Configuration);
 
 builder.Services.AddOpenApi(options => options.AddBearerDocumentation());
@@ -24,6 +26,11 @@ builder.Services.AddScoped<InventoryService>();
 builder.Services.AddScoped<IInventoryStore, EfInventoryStore>();
 builder.Services.AddScoped<CatalogService>();
 builder.Services.AddScoped<ICatalogStore, EfCatalogStore>();
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddScoped<DemoCatalogSeeder>();
+}
+
 builder.Services.AddDbContext<CatalogDbContext>((services, options) =>
 {
     var connectionString = services.GetRequiredService<IConfiguration>().GetConnectionString("Catalog");
@@ -37,9 +44,14 @@ builder.Services.AddDbContext<CatalogDbContext>((services, options) =>
 
 await using var app = builder.Build();
 
-if (bootstrap)
+if (command == "bootstrap-admin")
 {
     return await AdminBootstrap.RunCommandAsync(app.Services);
+}
+
+if (command == "seed-demo")
+{
+    return await SeedDemoCommand.RunAsync(app.Environment, app.Services);
 }
 
 app.UseExceptionHandler();

@@ -25,23 +25,75 @@ jobs:
         run: dotnet build CommerceOps.slnx -c Release --no-restore
       - name: Test with SQLite
         run: dotnet test CommerceOps.slnx -c Release --no-build
-      - name: Start SQL Server
+      - name: Start SQL Server with Compose
         shell: bash
         run: |
-          export MSSQL_SA_PASSWORD="CommerceOpsAa1!$(openssl rand -hex 16)"
+          export MSSQL_SA_PASSWORD="Aa1!$(openssl rand -hex 24)"
           echo "::add-mask::$MSSQL_SA_PASSWORD"
-          docker run -d --name commerceops-sql -p 127.0.0.1:1433:1433 \
-            -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e MSSQL_SA_PASSWORD \
-            mcr.microsoft.com/mssql/server:2022-latest
-
-          for attempt in {1..60}; do
-            if docker exec commerceops-sql sh -c 'SQLCMDPASSWORD="$MSSQL_SA_PASSWORD" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -l 2 -Q "SELECT 1"' >/dev/null 2>&1; then
-              echo "COMMERCEOPS_TEST_SQLSERVER=Server=127.0.0.1,1433;User ID=sa;Password=$MSSQL_SA_PASSWORD;Encrypt=True;TrustServerCertificate=True" >> "$GITHUB_ENV"
-              exit 0
-            fi
-            sleep 2
-          done
-          docker logs --tail 80 commerceops-sql
-          exit 1
-      - name: Test with SQL Server and apply migration to a fresh database
+          printf 'MSSQL_SA_PASSWORD=%s\n' "$MSSQL_SA_PASSWORD" > .env
+          docker compose up -d --wait --wait-timeout 150
+          echo "COMMERCEOPS_TEST_SQLSERVER=Server=127.0.0.1,1433;User ID=sa;Password=$MSSQL_SA_PASSWORD;Encrypt=True;TrustServerCertificate=True" >> "$GITHUB_ENV"
+      - name: Test with SQL Server and apply migrations to a fresh database
         run: dotnet test CommerceOps.slnx -c Release --no-build
+      - name: Parse documented PowerShell examples
+        shell: pwsh
+        run: |
+          foreach ($file in 'docs/local-setup.md', 'docs/api-examples.md') {
+            $snippets = [regex]::Matches((Get-Content -Raw $file), '(?s)```powershell\r?\n(.*?)```')
+            if ($snippets.Count -eq 0) { throw "No PowerShell snippets in $file" }
+            foreach ($snippet in $snippets) {
+              $errors = $null
+              $null = [System.Management.Automation.Language.Parser]::ParseInput($snippet.Groups[1].Value, [ref]$null, [ref]$errors)
+              if ($errors.Count -gt 0) { throw "Invalid PowerShell in ${file}: $errors" }
+            }
+          }
+      - name: Smoke-test the demo on a clean database
+        shell: bash
+        run: |
+          export ConnectionStrings__Catalog="Database=CommerceOpsDemo;$COMMERCEOPS_TEST_SQLSERVER"
+          export DOTNET_ENVIRONMENT=Development
+          export Jwt__Issuer=commerceops-ci
+          export Jwt__Audience=commerceops-api
+          export Jwt__SigningKey="$(openssl rand -base64 32)"
+          echo "::add-mask::$Jwt__SigningKey"
+
+          dotnet ef database update --project src/CommerceOps.Infrastructure --startup-project src/CommerceOps.Api --configuration Release --no-build
+          api='src/CommerceOps.Api'
+          seed() { dotnet run --project "$api" -c Release --no-build -- seed-demo; }
+          DOTNET_ENVIRONMENT=Production seed && exit 1
+          first_seed=$(seed)
+          grep -F 'Added 2 categories and 3 products.' <<< "$first_seed"
+          second_seed=$(seed)
+          grep -F 'Added 0 categories and 0 products.' <<< "$second_seed"
+
+          export COMMERCEOPS_ADMIN_USERNAME=ci-demo-admin
+          export COMMERCEOPS_ADMIN_PASSWORD="Aa1!$(openssl rand -hex 24)"
+          echo "::add-mask::$COMMERCEOPS_ADMIN_PASSWORD"
+          dotnet run --project "$api" -c Release --no-build -- bootstrap-admin
+          env -u COMMERCEOPS_ADMIN_PASSWORD dotnet run --project "$api" -c Release --no-build -- --urls http://127.0.0.1:5080 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+
+          base=http://127.0.0.1:5080
+          for attempt in {1..30}; do
+            if curl -fsS --max-time 2 "$base/health"; then break; fi
+            sleep 1
+          done
+          curl -fsS "$base/health" | jq -e '.status == "healthy"'
+          curl -fsS "$base/api/v1/products" | jq -e '.totalCount == 3 and any(.items[]; .sku == "DEMO-BOX-12")'
+          token=$(jq -nc '{userName:env.COMMERCEOPS_ADMIN_USERNAME,password:env.COMMERCEOPS_ADMIN_PASSWORD}' |
+            curl -fsS -H 'Content-Type: application/json' --data-binary @- "$base/api/v1/auth/login" |
+            jq -er '.accessToken')
+          echo "::add-mask::$token"
+          unset COMMERCEOPS_ADMIN_PASSWORD
+          curl -fsS -H "Authorization: Bearer $token" "$base/api/v1/auth/me" | jq -e '.roles == ["Admin"]'
+
+          inventory="$base/api/v1/inventory/c01d0000-0000-4000-8000-000000000101"
+          curl -fsS "$inventory" | jq -e '.stockQuantity == 0'
+          test "$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
+            -d '{"quantity":1}' "$inventory/receipts")" = 401
+          curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+            -d '{"quantity":5,"reference":"CI-SMOKE"}' "$inventory/receipts" | jq -e '.balance.stockQuantity == 5'
+          curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+            -d '{"quantity":2}' "$inventory/issues" | jq -e '.balance.stockQuantity == 3'
+          curl -fsS "$inventory/movements" | jq -e '.totalCount == 2 and ([.items[].type] == ["issue","receipt"])'

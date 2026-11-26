@@ -1,0 +1,97 @@
+@baseUrl = http://localhost:5080
+@adminUser = local-admin
+@viewerUser = walkthrough-viewer
+@seedProductId = c01d0000-0000-4000-8000-000000000101
+
+### 200 — liveness
+GET {{baseUrl}}/health
+
+### 200 — anonymous category read
+GET {{baseUrl}}/api/v1/categories
+
+### 200 — anonymous product read (three products on a clean seed)
+GET {{baseUrl}}/api/v1/products?page=1&pageSize=20
+
+### 200 — anonymous stock read
+GET {{baseUrl}}/api/v1/inventory/{{seedProductId}}
+
+### 200 — anonymous movement history
+GET {{baseUrl}}/api/v1/inventory/{{seedProductId}}/movements
+
+### 401 — an anonymous receipt is blocked
+POST {{baseUrl}}/api/v1/inventory/{{seedProductId}}/receipts
+Content-Type: application/json
+
+{"quantity":1}
+
+### 200 — admin login (load local credentials from the editor environment)
+# @name adminLogin
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{"userName":"{{adminUser}}","password":"{{$processEnv COMMERCEOPS_DEMO_ADMIN_PASSWORD}}"}
+
+### 200 — current authenticated identity
+GET {{baseUrl}}/api/v1/auth/me
+Authorization: Bearer {{adminLogin.response.body.$.accessToken}}
+
+### 201 — create a category
+# @name newCategory
+POST {{baseUrl}}/api/v1/categories
+Authorization: Bearer {{adminLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{"name":"Labeling supplies","description":"Consumables for the packing station."}
+
+### 201 — create a product with zero initial stock
+# @name newProduct
+POST {{baseUrl}}/api/v1/products
+Authorization: Bearer {{adminLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{"sku":"WALKTHROUGH-LABEL-01","name":"Thermal shipping labels","unitPrice":8.95,"categoryId":"{{newCategory.response.body.$.id}}","isActive":true}
+
+### 200 — receive five units
+POST {{baseUrl}}/api/v1/inventory/{{newProduct.response.body.$.id}}/receipts
+Authorization: Bearer {{adminLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{"quantity":5,"reference":"SAMPLE-PO-42"}
+
+### 200 — issue two units
+POST {{baseUrl}}/api/v1/inventory/{{newProduct.response.body.$.id}}/issues
+Authorization: Bearer {{adminLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{"quantity":2,"note":"Sample shipment"}
+
+### 200 — history lists the issue and receipt
+GET {{baseUrl}}/api/v1/inventory/{{newProduct.response.body.$.id}}/movements?page=1&pageSize=20
+
+### 409 — insufficient stock
+POST {{baseUrl}}/api/v1/inventory/{{newProduct.response.body.$.id}}/issues
+Authorization: Bearer {{adminLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{"quantity":4}
+
+### 201 — admin creates a Viewer
+POST {{baseUrl}}/api/v1/users
+Authorization: Bearer {{adminLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{"userName":"{{viewerUser}}","password":"{{$processEnv COMMERCEOPS_DEMO_VIEWER_PASSWORD}}","role":"Viewer"}
+
+### 200 — Viewer login
+# @name viewerLogin
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{"userName":"{{viewerUser}}","password":"{{$processEnv COMMERCEOPS_DEMO_VIEWER_PASSWORD}}"}
+
+### 403 — a Viewer cannot receive stock
+POST {{baseUrl}}/api/v1/inventory/{{seedProductId}}/receipts
+Authorization: Bearer {{viewerLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{"quantity":1}
