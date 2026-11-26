@@ -1,3 +1,7 @@
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using CommerceOps.Api.Auth;
+using Microsoft.AspNetCore.Identity;
 using CommerceOps.Infrastructure.Catalog;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -18,6 +22,13 @@ public sealed class CatalogApiFixture : IAsyncLifetime
     private readonly string? sqlServer;
     private readonly WebApplicationFactory<Program> factory;
     private bool initialized;
+    private readonly TestApiFactory testHost = new();
+    private string adminToken = "";
+    internal string AdminName { get; } = $"admin-{Guid.NewGuid():N}";
+    internal string AdminPassword { get; } = GeneratePassword();
+    internal byte[] SigningKey => testHost.SigningKey;
+
+    internal static string GeneratePassword() => Convert.ToHexString(RandomNumberGenerator.GetBytes(24)) + "a1!";
 
     public CatalogApiFixture()
     {
@@ -34,7 +45,7 @@ public sealed class CatalogApiFixture : IAsyncLifetime
             }.ConnectionString;
         }
 
-        factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        factory = testHost.WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(Environments.Development);
             if (sqlite is not null)
@@ -54,7 +65,14 @@ public sealed class CatalogApiFixture : IAsyncLifetime
 
     public bool UsesSqlServer => sqlServer is not null;
 
-    public HttpClient CreateClient() => factory.CreateClient();
+    public HttpClient CreateClient() => factory.CreateClient(TestApiFactory.HttpsOptions);
+
+    public HttpClient CreateAdminClient()
+    {
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        return client;
+    }
     public AsyncServiceScope CreateScope() => factory.Services.CreateAsyncScope();
 
     public async Task InitializeAsync()
@@ -76,6 +94,11 @@ public sealed class CatalogApiFixture : IAsyncLifetime
         }
 
         initialized = true;
+        var services = scope.ServiceProvider;
+        await services.GetRequiredService<AdminBootstrap>().RunAsync(AdminName, AdminPassword);
+        var users = services.GetRequiredService<UserManager<IdentityUser<Guid>>>();
+        var admin = (await users.FindByNameAsync(AdminName))!;
+        adminToken = services.GetRequiredService<AccessTokenIssuer>().Issue(admin, await users.GetRolesAsync(admin)).AccessToken;
     }
 
     public async Task DisposeAsync()
@@ -90,7 +113,7 @@ public sealed class CatalogApiFixture : IAsyncLifetime
         }
         finally
         {
-            await factory.DisposeAsync();
+            await testHost.DisposeAsync();
             if (sqlite is not null)
             {
                 await sqlite.DisposeAsync();

@@ -1,3 +1,4 @@
+using CommerceOps.Api.Auth;
 using CommerceOps.Application.Common;
 using CommerceOps.Application.Inventory;
 
@@ -17,12 +18,14 @@ internal static class InventoryEndpoints
         inventory.MapPost("/receipts", async (Guid productId, StockRequest request,
                 InventoryService service, CancellationToken cancellationToken) =>
                 TypedResults.Ok(await service.ReceiveAsync(productId, request, cancellationToken)))
+            .RequireAuthorization(AuthPolicies.InventoryWrite).ProducesProblem(401).ProducesProblem(403)
             .WithSummary("Receive stock and return the new balance and movement")
             .ProducesValidationProblem().ProducesProblem(404).ProducesProblem(409);
 
         inventory.MapPost("/issues", async (Guid productId, StockRequest request,
                 InventoryService service, CancellationToken cancellationToken) =>
                 TypedResults.Ok(await service.IssueAsync(productId, request, cancellationToken)))
+            .RequireAuthorization(AuthPolicies.InventoryWrite).ProducesProblem(401).ProducesProblem(403)
             .WithSummary("Issue available stock and return the new balance and movement")
             .ProducesValidationProblem().ProducesProblem(404).ProducesProblem(409);
 

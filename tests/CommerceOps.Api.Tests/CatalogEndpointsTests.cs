@@ -19,7 +19,7 @@ public sealed class CatalogEndpointsTests(CatalogApiFixture fixture) : IClassFix
     [Fact]
     public async Task Categories_SupportCreateListGetUpdateAndDelete()
     {
-        using var client = fixture.CreateClient();
+        using var client = fixture.CreateAdminClient();
         var category = await CreateCategoryAsync(client);
 
         var list = await client.GetFromJsonAsync<Category[]>(Categories);
@@ -41,7 +41,7 @@ public sealed class CatalogEndpointsTests(CatalogApiFixture fixture) : IClassFix
     [Fact]
     public async Task Products_SupportCreateListGetUpdateAndDelete()
     {
-        using var client = fixture.CreateClient();
+        using var client = fixture.CreateAdminClient();
         var category = await CreateCategoryAsync(client);
         var otherCategory = await CreateCategoryAsync(client);
         var prefix = Guid.NewGuid().ToString("N");
@@ -77,7 +77,7 @@ public sealed class CatalogEndpointsTests(CatalogApiFixture fixture) : IClassFix
     [Fact]
     public async Task Products_RejectDuplicateSkuAndCategoryDeletionWithDependencies()
     {
-        using var client = fixture.CreateClient();
+        using var client = fixture.CreateAdminClient();
         var category = await CreateCategoryAsync(client);
         var sku = Guid.NewGuid().ToString("N");
         var request = new ProductRequest(sku, "Product", null, 4m, category.Id);
@@ -101,7 +101,7 @@ public sealed class CatalogEndpointsTests(CatalogApiFixture fixture) : IClassFix
     [Fact]
     public async Task Catalog_ReturnsProblemDetailsForInvalidRequests()
     {
-        using var client = fixture.CreateClient();
+        using var client = fixture.CreateAdminClient();
         using var invalidCategory = await client.PostAsJsonAsync(Categories, new CategoryRequest(" ", null));
         var categoryProblem = await AssertProblemAsync(invalidCategory, HttpStatusCode.BadRequest);
         Assert.True(categoryProblem.GetProperty("errors").TryGetProperty("name", out _));
@@ -126,7 +126,7 @@ public sealed class CatalogEndpointsTests(CatalogApiFixture fixture) : IClassFix
     [Fact]
     public async Task OpenApi_DocumentsCatalogRoutesAndConflicts()
     {
-        using var client = fixture.CreateClient();
+        using var client = fixture.CreateAdminClient();
         var document = await client.GetFromJsonAsync<JsonElement>("/openapi/v1.json");
         var paths = document.GetProperty("paths");
 
@@ -151,7 +151,7 @@ public sealed class CatalogEndpointsTests(CatalogApiFixture fixture) : IClassFix
     [Fact]
     public async Task Database_EnforcesUniqueSkuAndRestrictsCategoryDeletion()
     {
-        using var client = fixture.CreateClient();
+        using var client = fixture.CreateAdminClient();
         var category = await CreateCategoryAsync(client);
         var request = new ProductRequest(Guid.NewGuid().ToString("N"), "Product", null, 1m, category.Id);
         var product = await CreateProductAsync(client, request);
