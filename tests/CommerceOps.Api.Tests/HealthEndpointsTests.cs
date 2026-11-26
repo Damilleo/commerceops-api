@@ -7,13 +7,13 @@ using Xunit;
 
 namespace CommerceOps.Api.Tests;
 
-public sealed class HealthEndpointsTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>
+public sealed class HealthEndpointsTests(TestApiFactory factory)
+    : IClassFixture<TestApiFactory>
 {
     [Fact]
     public async Task GetHealth_ReturnsOkAndHealthyStatus()
     {
-        using var client = factory.CreateClient();
+        using var client = factory.CreateClient(TestApiFactory.HttpsOptions);
         using var response = await client.GetAsync("/health");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -28,7 +28,7 @@ public sealed class HealthEndpointsTests(WebApplicationFactory<Program> factory)
     {
         using var developmentFactory = factory.WithWebHostBuilder(
             builder => builder.UseEnvironment(Environments.Development));
-        using var client = developmentFactory.CreateClient();
+        using var client = developmentFactory.CreateClient(TestApiFactory.HttpsOptions);
         using var response = await client.GetAsync("/openapi/v1.json");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -40,11 +40,26 @@ public sealed class HealthEndpointsTests(WebApplicationFactory<Program> factory)
     }
 
     [Fact]
+    public async Task Production_RejectsPlainHttp()
+    {
+        using var productionFactory = factory.WithWebHostBuilder(builder => builder.UseEnvironment(Environments.Production));
+        using var client = productionFactory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("http://localhost"),
+            AllowAutoRedirect = false
+        });
+        using var response = await client.GetAsync("/health");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Fact]
     public async Task GetOpenApi_ReturnsNotFoundInProduction()
     {
         using var productionFactory = factory.WithWebHostBuilder(
             builder => builder.UseEnvironment(Environments.Production));
-        using var client = productionFactory.CreateClient();
+        using var client = productionFactory.CreateClient(TestApiFactory.HttpsOptions);
         using var response = await client.GetAsync("/openapi/v1.json");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);

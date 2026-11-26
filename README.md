@@ -1,6 +1,6 @@
 # CommerceOps API
 
-CommerceOps is an ASP.NET Core REST API for inventory and order management. It manages products, categories, stock balances, and movement history with EF Core and SQL Server.
+CommerceOps is an ASP.NET Core REST API for inventory and order management. It manages products, categories, stock balances, and movement history with EF Core and SQL Server, and uses ASP.NET Core Identity and JWT bearer authentication for writes.
 
 ## Prerequisites
 
@@ -9,7 +9,7 @@ CommerceOps is an ASP.NET Core REST API for inventory and order management. It m
 
 ## Run locally
 
-Catalog and inventory writes are unauthenticated. Do not expose this API publicly with real data until authentication and authorization are in place.
+Use only sample, non-sensitive data in the portfolio demo. Catalog and inventory reads are public.
 
 Run these commands from the repository root. If you have a local SQL Server instance, set `ConnectionStrings__Catalog` to its connection string using your shell or secret manager, then skip the container command.
 
@@ -37,20 +37,125 @@ docker run --detach --name commerceops-sql --publish 127.0.0.1:1433:1433 --env A
 $env:ConnectionStrings__Catalog = "Server=127.0.0.1,1433;Database=CommerceOps;User ID=sa;Password=$($env:MSSQL_SA_PASSWORD);Encrypt=True;TrustServerCertificate=True"
 ```
 
-### Migrate and start the API
+### Configure JWT, migrate, and create the first admin
 
 Wait for SQL Server to accept connections. For the Docker example, check `docker logs commerceops-sql` for the ready message and keep the local password for subsequent sessions. `TrustServerCertificate=True` is for the local container's self-signed certificate.
 
-Apply the committed migration and start the API:
+Set a local issuer, audience, and a Base64-encoded signing key generated from at least 32 random bytes. These values can also be set through an app secret store under `Jwt:Issuer`, `Jwt:Audience`, and `Jwt:SigningKey`. Keep the same key for as long as tokens must remain valid.
+
+Bash
+
+```bash
+export Jwt__Issuer='commerceops-local'
+export Jwt__Audience='commerceops-api'
+export Jwt__SigningKey="$(openssl rand -base64 32)"
+```
+
+PowerShell 7.2+
+
+```powershell
+$env:Jwt__Issuer = 'commerceops-local'
+$env:Jwt__Audience = 'commerceops-api'
+$env:Jwt__SigningKey = [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+```
+
+Apply the committed migrations from either shell:
 
 ```sh
 dotnet tool restore
 dotnet ef --version
 dotnet ef database update --project src/CommerceOps.Infrastructure --startup-project src/CommerceOps.Api
+```
+
+Run the one-time admin bootstrap locally. Use a unique password of 15 to 128 characters with uppercase, lowercase, a digit, and a symbol. The CLI creates the roles and first administrator in one transaction. After it succeeds, rerunning it leaves the account unchanged.
+
+Bash
+
+```bash
+export COMMERCEOPS_ADMIN_USERNAME='local-admin'
+read -rsp 'Bootstrap password: ' COMMERCEOPS_ADMIN_PASSWORD
+printf '\n'
+export COMMERCEOPS_ADMIN_PASSWORD
+dotnet run --project src/CommerceOps.Api -- bootstrap-admin
+unset COMMERCEOPS_ADMIN_PASSWORD
+```
+
+PowerShell 7.2+
+
+```powershell
+$env:COMMERCEOPS_ADMIN_USERNAME = 'local-admin'
+$env:COMMERCEOPS_ADMIN_PASSWORD = Read-Host 'Bootstrap password' -MaskInput
+try {
+    dotnet run --project src/CommerceOps.Api -- bootstrap-admin
+    if ($LASTEXITCODE -ne 0) { throw 'Administrator bootstrap failed.' }
+} finally {
+    Remove-Item Env:COMMERCEOPS_ADMIN_PASSWORD
+}
+```
+
+Keep the generated JWT configuration in the shell and start the app:
+
+```sh
 dotnet run --project src/CommerceOps.Api -- --environment Development --urls http://localhost:5080
 ```
 
 The API uses the configured database and migrations are applied explicitly. `GET /health` reports process liveness without requiring SQL Server. The OpenAPI JSON document is available in Development at `/openapi/v1.json`.
+
+## Authentication and permissions
+
+`POST /api/v1/auth/login` accepts `userName` and `password`. It returns `accessToken`, `tokenType` (`Bearer`), and `expiresIn` (900 seconds). Send the token in the `Authorization: Bearer <token>` header. `GET /api/v1/auth/me` returns the authenticated user's ID, username, and token roles.
+
+`POST /api/v1/users` accepts `userName`, `password`, and one role (`Admin`, `Operator`, or `Viewer`). It returns HTTP 201 with the new account's ID, username, and role. Invalid input returns 400 and duplicate usernames return 409.
+
+| Operation | Anonymous | Viewer | Operator | Admin |
+| --- | --- | --- | --- | --- |
+| Health, catalog reads, inventory reads | Yes | Yes | Yes | Yes |
+| Read own identity via `/auth/me` | | Yes | Yes | Yes |
+| Receive or issue stock | | | Yes | Yes |
+| Write categories or products, create users | | | | Yes |
+
+Protected routes return 401 for missing, expired, or invalid tokens and 403 for insufficient roles. Login failures share a generic 401 response. Each API instance allows 20 login attempts per minute per source IP. Identity locks an account for 15 minutes after five failed password attempts. The API exposes neither self-registration nor password reset.
+
+### Login and authenticated requests
+
+Bash examples use `jq`. Run these from a second terminal after starting the API, using the username and password selected during bootstrap.
+
+```bash
+api='http://localhost:5080'
+export COMMERCEOPS_ADMIN_USERNAME='local-admin'
+read -rsp 'Login password: ' COMMERCEOPS_ADMIN_PASSWORD
+printf '\n'
+export COMMERCEOPS_ADMIN_PASSWORD
+token=$(jq -nc '{userName:env.COMMERCEOPS_ADMIN_USERNAME,password:env.COMMERCEOPS_ADMIN_PASSWORD}' |
+  curl --fail --silent --show-error -H 'Content-Type: application/json' --data-binary @- "$api/api/v1/auth/login" |
+  jq -er '.accessToken')
+unset COMMERCEOPS_ADMIN_PASSWORD
+curl --fail --silent --show-error -H "Authorization: Bearer $token" "$api/api/v1/auth/me"
+```
+
+PowerShell 7.2+
+
+```powershell
+$api = 'http://localhost:5080'
+$password = Read-Host 'Login password' -MaskInput
+try {
+    $body = @{ userName = 'local-admin'; password = $password } | ConvertTo-Json -Compress
+    $login = Invoke-RestMethod -Method Post -Uri "$api/api/v1/auth/login" -ContentType 'application/json' -Body $body
+} finally {
+    Remove-Variable password, body -ErrorAction SilentlyContinue
+}
+$headers = @{ Authorization = "Bearer $($login.accessToken)" }
+Invoke-RestMethod -Uri "$api/api/v1/auth/me" -Headers $headers
+Invoke-RestMethod -Method Post -Uri "$api/api/v1/categories" -Headers $headers -ContentType 'application/json' -Body '{"name":"Hardware"}'
+```
+
+### Security boundaries
+
+Identity uses the standard `AspNetUsers`, `AspNetRoles`, and related tables in the same database and migration chain as the catalog. Passwords are validated and hashed by ASP.NET Core Identity. Store signing keys and database credentials in environment secrets or a secret manager. Keep request bodies, tokens, and authorization headers out of logs, including proxy logs and shell tracing.
+
+Plain HTTP is accepted only for a loopback connection in Development. Use HTTPS elsewhere. If TLS terminates at a reverse proxy, configure trusted forwarded headers before the HTTPS check and avoid trusting client-supplied proxy headers.
+
+Local JWT issuance is a demo sign-in flow. Tokens are signed with HS256 and roles are taken from the signed token until it expires. There are no refresh tokens or token revocation. For a public deployment, replace local token issuance with a trusted OIDC/OAuth provider such as Microsoft Entra ID, review the anonymous read policy, and use centrally managed credentials and rate limits.
 
 ## Catalog endpoints
 
@@ -77,12 +182,12 @@ Errors use Problem Details. Invalid input or an invalid product category referen
 curl --fail --silent http://localhost:5080/health
 curl --fail --silent http://localhost:5080/openapi/v1.json
 
-curl --fail --silent -X POST http://localhost:5080/api/v1/categories \
+curl --fail --silent -X POST http://localhost:5080/api/v1/categories -H "Authorization: Bearer $token" \
   -H 'Content-Type: application/json' \
   -d '{"name":"Hardware","description":"Parts and accessories"}'
 
 # Replace CATEGORY_ID with the ID returned by the category request.
-curl --fail --silent -X POST http://localhost:5080/api/v1/products \
+curl --fail --silent -X POST http://localhost:5080/api/v1/products -H "Authorization: Bearer $token" \
   -H 'Content-Type: application/json' \
   -d '{"sku":"HW-001","name":"Steel bracket","unitPrice":5.75,"categoryId":"CATEGORY_ID","isActive":true}'
 
@@ -110,9 +215,9 @@ Problem Details use 400 for invalid input, 404 for missing products, and 409 for
 # Replace PRODUCT_ID with the ID returned by the product creation request.
 inventory='http://localhost:5080/api/v1/inventory/PRODUCT_ID'
 curl --fail --silent "$inventory"
-curl --fail --silent -X POST "$inventory/receipts" -H 'Content-Type: application/json' \
+curl --fail --silent -X POST "$inventory/receipts" -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
   -d '{"quantity":5,"reference":"PO-42"}'
-curl --fail --silent -X POST "$inventory/issues" -H 'Content-Type: application/json' \
+curl --fail --silent -X POST "$inventory/issues" -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
   -d '{"quantity":2,"note":"Manual issue"}'
 curl --fail --silent "$inventory/movements?page=1&pageSize=20"
 ```
@@ -129,7 +234,7 @@ dotnet build CommerceOps.slnx -c Release --no-restore
 dotnet test CommerceOps.slnx -c Release --no-build
 ```
 
-Catalog and inventory integration tests use relational SQLite in memory by default. SQLite verifies endpoint behavior, constraints, and rollback. The simultaneous-issue and existing-product migration tests run only against SQL Server. The concurrency test uses separate connections. To run the same suite against SQL Server, set `COMMERCEOPS_TEST_SQLSERVER` to a connection string for a **test** server. The login needs permission to create and drop databases. The suite creates an isolated database with a generated name, applies the committed migrations, and drops the database after testing. GitHub Actions runs both providers with an ephemeral SQL Server container and a generated password.
+Integration tests use relational SQLite in memory by default. Tests generate fresh signing keys and passwords in the test process. SQLite verifies endpoint behavior, constraints, and rollback. The simultaneous-issue and migration upgrade tests run only against SQL Server. The migration test verifies that adding Identity preserves a Sprint 2 product, stock balance, and movement. The concurrency test uses separate connections. To run the same suite against SQL Server, set `COMMERCEOPS_TEST_SQLSERVER` to a connection string for a **test** server. The login needs permission to create and drop databases. The suite creates an isolated database with a generated name, applies the committed migrations, and drops the database after testing. GitHub Actions runs both providers with an ephemeral SQL Server container and a generated password.
 
 ## Solution layout
 

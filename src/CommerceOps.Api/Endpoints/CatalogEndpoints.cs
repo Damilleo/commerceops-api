@@ -1,3 +1,4 @@
+using CommerceOps.Api.Auth;
 using CommerceOps.Application.Common;
 using CommerceOps.Application.Catalog;
 
@@ -26,6 +27,7 @@ internal static class CatalogEndpoints
                 var category = await catalog.CreateCategoryAsync(request, cancellationToken);
                 return TypedResults.CreatedAtRoute(category, GetCategory, new { id = category.Id });
             })
+            .RequireAuthorization(AuthPolicies.Admin).ProducesProblem(401).ProducesProblem(403)
             .WithSummary("Create a category").ProducesValidationProblem();
 
         categories.MapPut("/{id}", async (Guid id, CategoryRequest request, CatalogService catalog, CancellationToken cancellationToken) =>
@@ -33,6 +35,7 @@ internal static class CatalogEndpoints
                 await catalog.UpdateCategoryAsync(id, request, cancellationToken);
                 return TypedResults.NoContent();
             })
+            .RequireAuthorization(AuthPolicies.Admin).ProducesProblem(401).ProducesProblem(403)
             .WithSummary("Replace a category").ProducesValidationProblem().ProducesProblem(404);
 
         categories.MapDelete("/{id}", async (Guid id, CatalogService catalog, CancellationToken cancellationToken) =>
@@ -40,6 +43,7 @@ internal static class CatalogEndpoints
                 await catalog.DeleteCategoryAsync(id, cancellationToken);
                 return TypedResults.NoContent();
             })
+            .RequireAuthorization(AuthPolicies.Admin).ProducesProblem(401).ProducesProblem(403)
             .WithSummary("Delete a category with no associated products")
             .ProducesProblem(400).ProducesProblem(404).ProducesProblem(409);
 
@@ -61,6 +65,7 @@ internal static class CatalogEndpoints
                 var product = await catalog.CreateProductAsync(request, cancellationToken);
                 return TypedResults.CreatedAtRoute(product, GetProduct, new { id = product.Id });
             })
+            .RequireAuthorization(AuthPolicies.Admin).ProducesProblem(401).ProducesProblem(403)
             .WithSummary("Create a product").ProducesValidationProblem().ProducesProblem(409);
 
         products.MapPut("/{id}", async (Guid id, ProductRequest request, CatalogService catalog, CancellationToken cancellationToken) =>
@@ -68,6 +73,7 @@ internal static class CatalogEndpoints
                 await catalog.UpdateProductAsync(id, request, cancellationToken);
                 return TypedResults.NoContent();
             })
+            .RequireAuthorization(AuthPolicies.Admin).ProducesProblem(401).ProducesProblem(403)
             .WithSummary("Replace a product")
             .ProducesValidationProblem().ProducesProblem(404).ProducesProblem(409);
 
@@ -76,6 +82,7 @@ internal static class CatalogEndpoints
                 await catalog.DeleteProductAsync(id, cancellationToken);
                 return TypedResults.NoContent();
             })
+            .RequireAuthorization(AuthPolicies.Admin).ProducesProblem(401).ProducesProblem(403)
             .WithSummary("Delete a product with no stock movements").ProducesProblem(400).ProducesProblem(404).ProducesProblem(409);
     }
 }

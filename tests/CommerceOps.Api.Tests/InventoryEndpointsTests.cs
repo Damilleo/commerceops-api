@@ -20,7 +20,7 @@ public sealed class InventoryEndpointsTests(CatalogApiFixture fixture) : IClassF
     [Fact]
     public async Task ReceiptAndIssue_UpdateBalanceAndRecordPaginatedHistory()
     {
-        using var client = fixture.CreateClient();
+        using var client = fixture.CreateAdminClient();
         var route = await CreateInventoryAsync(client);
 
         Assert.Equal(0, (await client.GetFromJsonAsync<StockBalance>(route))!.StockQuantity);
@@ -47,7 +47,7 @@ public sealed class InventoryEndpointsTests(CatalogApiFixture fixture) : IClassF
     [Fact]
     public async Task IssuesAndReceipts_RejectInsufficientStockAndOverflowWithoutSideEffects()
     {
-        using var client = fixture.CreateClient();
+        using var client = fixture.CreateAdminClient();
         var route = await CreateInventoryAsync(client);
 
         using var insufficient = await client.PostAsJsonAsync($"{route}/issues", new StockRequest(1));
@@ -65,7 +65,7 @@ public sealed class InventoryEndpointsTests(CatalogApiFixture fixture) : IClassF
     [Fact]
     public async Task Inventory_ReturnsProblemDetailsForMissingProductsAndInvalidInput()
     {
-        using var client = fixture.CreateClient();
+        using var client = fixture.CreateAdminClient();
         var missingRoute = $"/api/v1/inventory/{Guid.NewGuid()}";
         using var missingBalance = await client.GetAsync(missingRoute);
         await AssertProblemAsync(missingBalance, HttpStatusCode.NotFound);
@@ -89,7 +89,7 @@ public sealed class InventoryEndpointsTests(CatalogApiFixture fixture) : IClassF
     [Fact]
     public async Task Products_CannotBeDeletedAfterMovementEvenWhenBalanceIsZero()
     {
-        using var client = fixture.CreateClient();
+        using var client = fixture.CreateAdminClient();
         var route = await CreateInventoryAsync(client);
         var receipt = await ApplyAsync(client, $"{route}/receipts", new StockRequest(1));
         await ApplyAsync(client, $"{route}/issues", new StockRequest(1));
@@ -103,7 +103,7 @@ public sealed class InventoryEndpointsTests(CatalogApiFixture fixture) : IClassF
     [Fact]
     public async Task FailedMovementInsert_RollsBackBalanceChange()
     {
-        using var client = fixture.CreateClient();
+        using var client = fixture.CreateAdminClient();
         var route = await CreateInventoryAsync(client);
         var receipt = await ApplyAsync(client, $"{route}/receipts", new StockRequest(3));
 
@@ -121,7 +121,7 @@ public sealed class InventoryEndpointsTests(CatalogApiFixture fixture) : IClassF
     [SqlServerFact]
     public async Task ConcurrentIssues_OnlyOneCanSpendTheLastUnit()
     {
-        using var client = fixture.CreateClient();
+        using var client = fixture.CreateAdminClient();
         var route = await CreateInventoryAsync(client);
         await ApplyAsync(client, $"{route}/receipts", new StockRequest(1));
 
@@ -152,7 +152,7 @@ public sealed class InventoryEndpointsTests(CatalogApiFixture fixture) : IClassF
     [Fact]
     public async Task OpenApi_DocumentsInventoryOperations()
     {
-        using var client = fixture.CreateClient();
+        using var client = fixture.CreateAdminClient();
         var document = await client.GetFromJsonAsync<JsonElement>("/openapi/v1.json");
         var paths = document.GetProperty("paths");
         const string route = "/api/v1/inventory/{productId}";
