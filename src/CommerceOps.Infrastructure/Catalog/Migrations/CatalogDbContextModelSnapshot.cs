@@ -66,6 +66,11 @@ namespace CommerceOps.Infrastructure.Catalog.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
+                    b.Property<int>("StockQuantity")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
                     b.Property<decimal>("UnitPrice")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
@@ -80,7 +85,49 @@ namespace CommerceOps.Infrastructure.Catalog.Migrations
 
                     b.ToTable("Products", t =>
                         {
+                            t.HasCheckConstraint("CK_Products_StockQuantity_NonNegative", "StockQuantity >= 0");
+
                             t.HasCheckConstraint("CK_Products_UnitPrice_Positive", "CAST(UnitPrice AS decimal(18,2)) > 0");
+                        });
+                });
+
+            modelBuilder.Entity("CommerceOps.Application.Inventory.StockMovement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime>("OccurredAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(7)
+                        .HasColumnType("nvarchar(7)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId", "OccurredAtUtc", "Id")
+                        .IsDescending(false, true, true);
+
+                    b.ToTable("StockMovements", t =>
+                        {
+                            t.HasCheckConstraint("CK_StockMovements_Quantity_Positive", "Quantity > 0");
+
+                            t.HasCheckConstraint("CK_StockMovements_Type", "Type IN ('Receipt', 'Issue')");
                         });
                 });
 
@@ -92,6 +139,16 @@ namespace CommerceOps.Infrastructure.Catalog.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("FK_Products_Categories_CategoryId");
+                });
+
+            modelBuilder.Entity("CommerceOps.Application.Inventory.StockMovement", b =>
+                {
+                    b.HasOne("CommerceOps.Application.Catalog.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_StockMovements_Products_ProductId");
                 });
 #pragma warning restore 612, 618
         }

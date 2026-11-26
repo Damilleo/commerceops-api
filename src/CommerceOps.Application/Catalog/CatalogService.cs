@@ -1,3 +1,5 @@
+using CommerceOps.Application.Common;
+
 namespace CommerceOps.Application.Catalog;
 
 public sealed class CatalogService(ICatalogStore store)
@@ -6,7 +8,7 @@ public sealed class CatalogService(ICatalogStore store)
         store.ListCategoriesAsync(cancellationToken);
 
     public async Task<Category> GetCategoryAsync(Guid id, CancellationToken cancellationToken) =>
-        await store.FindCategoryAsync(id, cancellationToken) ?? throw CatalogException.NotFound("category");
+        await store.FindCategoryAsync(id, cancellationToken) ?? throw RequestException.NotFound("category");
 
     public async Task<Category> CreateCategoryAsync(CategoryRequest request, CancellationToken cancellationToken)
     {
@@ -30,7 +32,7 @@ public sealed class CatalogService(ICatalogStore store)
         var category = await GetCategoryAsync(id, cancellationToken);
         if (await store.CategoryHasProductsAsync(id, cancellationToken))
         {
-            throw CatalogException.CategoryInUse();
+            throw CatalogErrors.CategoryInUse();
         }
 
         store.Remove(category);
@@ -40,14 +42,14 @@ public sealed class CatalogService(ICatalogStore store)
     public async Task<ProductPage> ListProductsAsync(
         Guid? categoryId, int page, int pageSize, CancellationToken cancellationToken)
     {
-        var offset = CatalogRules.ValidatePage(page, pageSize);
+        var offset = Pagination.GetOffset(page, pageSize);
         var totalCount = await store.CountProductsAsync(categoryId, cancellationToken);
         var items = await store.ListProductsAsync(categoryId, offset, pageSize, cancellationToken);
         return new ProductPage(items, page, pageSize, totalCount);
     }
 
     public async Task<Product> GetProductAsync(Guid id, CancellationToken cancellationToken) =>
-        await store.FindProductAsync(id, cancellationToken) ?? throw CatalogException.NotFound("product");
+        await store.FindProductAsync(id, cancellationToken) ?? throw RequestException.NotFound("product");
 
     public async Task<Product> CreateProductAsync(ProductRequest request, CancellationToken cancellationToken)
     {
@@ -70,6 +72,11 @@ public sealed class CatalogService(ICatalogStore store)
     public async Task DeleteProductAsync(Guid id, CancellationToken cancellationToken)
     {
         var product = await GetProductAsync(id, cancellationToken);
+        if (await store.ProductHasMovementsAsync(id, cancellationToken))
+        {
+            throw CatalogErrors.ProductHasMovements();
+        }
+
         store.Remove(product);
         await store.SaveChangesAsync(cancellationToken);
     }
@@ -80,12 +87,12 @@ public sealed class CatalogService(ICatalogStore store)
         var validated = CatalogRules.Validate(request);
         if (!await store.CategoryExistsAsync(validated.CategoryId, cancellationToken))
         {
-            throw CatalogException.UnknownCategory();
+            throw CatalogErrors.UnknownCategory();
         }
 
         if (await store.SkuExistsAsync(validated.Sku!, exceptProductId, cancellationToken))
         {
-            throw CatalogException.DuplicateSku();
+            throw CatalogErrors.DuplicateSku();
         }
 
         return validated;

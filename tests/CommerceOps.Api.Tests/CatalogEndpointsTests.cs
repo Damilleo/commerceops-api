@@ -1,3 +1,4 @@
+using CommerceOps.Application.Common;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
@@ -161,7 +162,7 @@ public sealed class CatalogEndpointsTests(CatalogApiFixture fixture) : IClassFix
             store.Add(new Product { Sku = product.Sku, Name = product.Name, UnitPrice = 1m, CategoryId = category.Id });
             if (fixture.UsesSqlServer)
             {
-                var conflict = await Assert.ThrowsAsync<CatalogException>(() => store.SaveChangesAsync(default));
+                var conflict = await Assert.ThrowsAsync<RequestException>(() => store.SaveChangesAsync(default));
                 Assert.Equal("A product with this SKU already exists.", conflict.Message);
             }
             else
@@ -176,7 +177,7 @@ public sealed class CatalogEndpointsTests(CatalogApiFixture fixture) : IClassFix
             store.Remove((await store.FindCategoryAsync(category.Id, default))!);
             if (fixture.UsesSqlServer)
             {
-                var conflict = await Assert.ThrowsAsync<CatalogException>(() => store.SaveChangesAsync(default));
+                var conflict = await Assert.ThrowsAsync<RequestException>(() => store.SaveChangesAsync(default));
                 Assert.Equal("The category cannot be deleted while products reference it.", conflict.Message);
             }
             else

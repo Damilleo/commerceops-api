@@ -1,3 +1,5 @@
+using CommerceOps.Application.Common;
+
 namespace CommerceOps.Application.Catalog;
 
 public static class CatalogRules
@@ -7,8 +9,6 @@ public static class CatalogRules
     public const int SkuLength = 64;
     public const int PricePrecision = 18;
     public const int PriceScale = 2;
-    public const int DefaultPageSize = 20;
-    public const int MaxPageSize = 100;
 
     public static CategoryRequest Validate(CategoryRequest request)
     {
@@ -48,29 +48,6 @@ public static class CatalogRules
         return request with { Sku = sku, Name = name, Description = description };
     }
 
-    public static int ValidatePage(int page, int pageSize)
-    {
-        var errors = new Dictionary<string, string[]>();
-        if (page < 1)
-        {
-            errors["page"] = ["Page must be at least 1."];
-        }
-
-        if (pageSize is < 1 or > MaxPageSize)
-        {
-            errors["pageSize"] = [$"Page size must be between 1 and {MaxPageSize}."];
-        }
-
-        var offset = ((long)page - 1) * pageSize;
-        if (offset > int.MaxValue)
-        {
-            errors["page"] = ["Page exceeds the supported range for this page size."];
-        }
-
-        ThrowIfInvalid(errors);
-        return (int)offset;
-    }
-
     private static string? NormalizeDescription(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
@@ -94,7 +71,7 @@ public static class CatalogRules
     {
         if (errors.Count > 0)
         {
-            throw CatalogException.Invalid(errors);
+            throw RequestException.Invalid(errors);
         }
     }
 }
